@@ -7,9 +7,11 @@ import json
 import shlex
 import subprocess
 
+
 def ensure_directory_exists(path: str):
     """Create `path` if it doesn't exist."""
     os.makedirs(path, exist_ok=True)
+
 
 def shell(args: List[str]):
     """Executes the shell command in `args`."""
@@ -17,9 +19,11 @@ def shell(args: List[str]):
     # hlog(f"Executing: {cmd}")
     exit_code = subprocess.call(args)
     # if exit_code != 0:
-        # hlog(f"Failed with exit code {exit_code}: {cmd}")
+    # hlog(f"Failed with exit code {exit_code}: {cmd}")
 
-# @htrack(None) 본격적으로 수정 12.04 11:35AM
+# @htrack(None) 본격적으로 수정
+
+
 def ensure_file_downloaded(
     source_url: str,
     target_path: str,
@@ -53,7 +57,8 @@ def ensure_file_downloaded(
                 elif source_url.endswith(".zst"):
                     unpack_type = "unzstd"
                 else:
-                    raise Exception("Failed to infer the file format from source_url. Please specify unpack_type.")
+                    raise Exception(
+                        "Failed to infer the file format from source_url. Please specify unpack_type.")
 
             tmp2_path = target_path + ".tmp2"
             ensure_directory_exists(tmp2_path)
