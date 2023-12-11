@@ -1,5 +1,4 @@
-# with sparse attention
-
+# mypy: ignore-errors
 from dataclasses import dataclass
 from typing import Optional, Tuple, List, Union
 
@@ -9,7 +8,7 @@ from torch.nn import functional as F
 
 import lit_llama.model as llama
 from lit_llama.model import build_rope_cache, apply_rope, RMSNorm, MLP, KVCache, RoPECache
-from lit_llama.sparse_attention import SparseAttention  # 추가
+from lit_llama.sparseAttn import SparseAttention  # 추가
 
 
 @dataclass
@@ -40,8 +39,7 @@ class CausalSelfAttention(nn.Module):
             self.gating_factor = torch.nn.Parameter(
                 torch.zeros(1, config.n_head, 1, 1))
 
-        self.sparse_attn = SparseAttention(
-            heads=config.n_head, attn_mode='all', blocksize=config.block_size)
+        self.sparse_attn = SparseAttention(heads=config.n_head, attn_mode='all', blocksize=config.block_size)
         self.n_head = config.n_head
         self.n_embd = config.n_embd
         self.block_size = config.block_size
@@ -142,8 +140,8 @@ class CausalSelfAttention(nn.Module):
             # ↓ (B, nh, T, hs) @ (B, nh, aT, hs).mT --> (B, nh, T, aT) @ (B, nh, aT, hs) --> (B, nh, T, hs)
             # ay = F.scaled_dot_product_attention
             #    q, ak, av, attn_mask=amask, dropout_p=0.0, is_causal=False)  # (B, nh, T, hs)
-
-            ay = self.sparse_attn(q, ak, av)  # 변경 부분
+            
+            ay = self.sparse_attn(q, ak, av) # 변경 부분
             y = y + self.gating_factor * ay
 
         # re-assemble all head outputs side by side

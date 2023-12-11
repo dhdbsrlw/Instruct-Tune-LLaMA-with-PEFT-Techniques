@@ -37,44 +37,44 @@ from lit_llama.adapter_v2 import (
     adapter_v2_state_from_state_dict
     )
 from lit_llama.tokenizer import Tokenizer
-from scripts.prepare_alpaca import generate_prompt
+from scripts.prepare_dolly import generate_prompt
 from lightning.fabric.strategies import DeepSpeedStrategy
 
 
 eval_interval = 100
-save_interval = 100
+save_interval = 1000
 eval_iters = 100
-log_interval = 50
+log_interval = 100
 devices = 1
-
-# wandb init
-wandb.init(
-    project="adapter_v2",
-    name="common_1",
-    config={
-      # Hyperparameters
-      "learning_rate": 9e-3,
-      "batch_size": 128,
-      "micro_batch_size": 4,
-      "max_iters" : 16260,
-      "weight_decay": 0.02,
-      "max_seq_length": 512,  
-      "warmup_iters": 6500,
-    }
-)
 
 # Hyperparameters
 learning_rate = 9e-3
-batch_size = 128 # 64 / devices
+batch_size = 64 # 64 / devices
 micro_batch_size = 4
 gradient_accumulation_iters = batch_size // micro_batch_size
 assert gradient_accumulation_iters > 0
-epoch_size = 13011 # 50000  # train dataset size
-num_epochs = 5
+epoch_size = 13011 # train dataset size
+num_epochs = 3
 max_iters = num_epochs * (epoch_size // micro_batch_size) // devices
 weight_decay = 0.02
-max_seq_length = 512  # see scripts/prepare_alpaca.py
+max_seq_length = 512 
 warmup_iters = 2 * (epoch_size // micro_batch_size) // devices  # 2 epochs
+
+# wandb init
+wandb.init(
+    project="COSE474",
+    name="c2_adapter_v2_base",
+    config={
+      # Hyperparameters
+      "learning_rate": learning_rate,
+      "batch_size": batch_size,
+      "micro_batch_size": micro_batch_size,
+      "max_iters" : max_iters,
+      "weight_decay": weight_decay,
+      "max_seq_length": max_seq_length,  
+      "warmup_iters": warmup_iters,
+    }
+)
 
 ds_config = {
     "train_micro_batch_size_per_gpu": micro_batch_size,
@@ -84,7 +84,7 @@ ds_config = {
 
 
 def main(
-    data_dir: str = "data/alpaca", 
+    data_dir: str = "data/dolly", 
     pretrained_path: str = "checkpoints/open-llama/7B/pytorch_model-00002-of-00002.bin",
     out_dir: str = "out/adapter_v2/alpaca",
 ):

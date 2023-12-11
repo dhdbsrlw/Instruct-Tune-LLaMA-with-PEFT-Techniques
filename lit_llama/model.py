@@ -52,8 +52,7 @@ class LLaMA(nn.Module):
         assert config.padded_vocab_size is not None
         self.config = config
 
-        self.lm_head = nn.Linear(
-            config.n_embd, config.padded_vocab_size, bias=False)
+        self.lm_head = nn.Linear(config.n_embd, config.padded_vocab_size, bias=False)
         self.transformer = nn.ModuleDict(
             dict(
                 wte=nn.Embedding(config.padded_vocab_size, config.n_embd),
@@ -68,11 +67,9 @@ class LLaMA(nn.Module):
 
     def _init_weights(self, module: nn.Module) -> None:
         if isinstance(module, nn.Linear):
-            torch.nn.init.normal_(module.weight, mean=0.0,
-                                  std=0.02 / math.sqrt(2 * self.config.n_layer))
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02 / math.sqrt(2 * self.config.n_layer))
         elif isinstance(module, nn.Embedding):
-            torch.nn.init.normal_(module.weight, mean=0.0,
-                                  std=0.02 / math.sqrt(2 * self.config.n_layer))
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02 / math.sqrt(2 * self.config.n_layer))
 
     def forward(
         self, idx: torch.Tensor, max_seq_length: Optional[int] = None, input_pos: Optional[torch.Tensor] = None
@@ -100,8 +97,7 @@ class LLaMA(nn.Module):
             mask = self.mask_cache[:, :, :T, :T]
 
         # forward the model itself
-        # token embeddings of shape (b, t, n_embd)
-        x = self.transformer.wte(idx)
+        x = self.transformer.wte(idx)  # token embeddings of shape (b, t, n_embd)
 
         if input_pos is None:  # proxy for use_cache=False
             for block in self.transformer.h:
@@ -109,16 +105,13 @@ class LLaMA(nn.Module):
         else:
             if not self.kv_caches:
                 head_size = self.config.n_embd // self.config.n_head
-                cache_shape = (B, self.config.n_head,
-                               max_seq_length, head_size)
+                cache_shape = (B, self.config.n_head, max_seq_length, head_size)
                 self.kv_caches = [
-                    (torch.zeros(cache_shape, device=x.device, dtype=x.dtype),
-                     torch.zeros(cache_shape, device=x.device, dtype=x.dtype))
+                    (torch.zeros(cache_shape, device=x.device, dtype=x.dtype), torch.zeros(cache_shape, device=x.device, dtype=x.dtype))
                     for _ in range(self.config.n_layer)
                 ]
             for i, block in enumerate(self.transformer.h):
-                x, self.kv_caches[i] = block(
-                    x, rope, mask, max_seq_length, input_pos, self.kv_caches[i])
+                x, self.kv_caches[i] = block(x, rope, mask, max_seq_length, input_pos, self.kv_caches[i])
 
         x = self.transformer.ln_f(x)
 
@@ -139,8 +132,7 @@ class LLaMA(nn.Module):
         )
 
     def build_mask_cache(self, idx: torch.Tensor) -> MaskCache:
-        ones = torch.ones((self.config.block_size, self.config.block_size),
-                          device=idx.device, dtype=torch.bool)
+        ones = torch.ones((self.config.block_size, self.config.block_size), device=idx.device, dtype=torch.bool)
         return torch.tril(ones).unsqueeze(0).unsqueeze(0)
 
     def reset_cache(self) -> None:
@@ -168,8 +160,7 @@ class Block(nn.Module):
         input_pos: Optional[torch.Tensor] = None,
         kv_cache: Optional[KVCache] = None,
     ) -> Tuple[torch.Tensor, Optional[KVCache]]:
-        h, new_kv_cache = self.attn(self.rms_1(
-            x), rope, mask, max_seq_length, input_pos, kv_cache)
+        h, new_kv_cache = self.attn(self.rms_1(x), rope, mask, max_seq_length, input_pos, kv_cache)
         x = x + h
         x = x + self.mlp(self.rms_2(x))
         return x, new_kv_cache
@@ -219,8 +210,7 @@ class CausalSelfAttention(nn.Module):
             cache_k, cache_v = kv_cache
             # check if reached token limit
             if input_pos[-1] >= max_seq_length:
-                input_pos = torch.tensor(
-                    max_seq_length - 1, device=input_pos.device)
+                input_pos = torch.tensor(max_seq_length - 1, device=input_pos.device)
                 # shift 1 position to the left
                 cache_k = torch.roll(cache_k, -1, dims=2)
                 cache_v = torch.roll(cache_v, -1, dims=2)
@@ -235,11 +225,9 @@ class CausalSelfAttention(nn.Module):
         #  y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
 
         # efficient attention using Flash Attention CUDA kernels
-        y = F.scaled_dot_product_attention(
-            q, k, v, attn_mask=mask, dropout_p=0.0)
+        y = F.scaled_dot_product_attention(q, k, v, attn_mask=mask, dropout_p=0.0)
 
-        # re-assemble all head outputs side by side
-        y = y.transpose(1, 2).contiguous().view(B, T, C)
+        y = y.transpose(1, 2).contiguous().view(B, T, C)  # re-assemble all head outputs side by side
 
         # output projection
         y = self.c_proj(y)
@@ -297,8 +285,7 @@ def build_rope_cache(
     https://github.com/labmlai/annotated_deep_learning_paper_implementations/blob/master/license.
     """
     # $\Theta = {\theta_i = 10000^{\frac{2(i-1)}{d}}, i \in [1, 2, ..., \frac{d}{2}]}$
-    theta = 1.0 / (base ** (torch.arange(0, n_elem, 2,
-                   dtype=dtype, device=device) / n_elem))
+    theta = 1.0 / (base ** (torch.arange(0, n_elem, 2, dtype=dtype, device=device) / n_elem))
 
     # Create position indexes `[0, 1, ..., seq_len - 1]`
     seq_idx = torch.arange(seq_len, dtype=dtype, device=device)
@@ -324,10 +311,8 @@ def apply_rope(x: torch.Tensor, rope_cache: RoPECache) -> torch.Tensor:
     rope_cache = rope_cache.view(1, xshaped.size(1), 1, xshaped.size(3), 2)
     x_out2 = torch.stack(
         [
-            xshaped[..., 0] * rope_cache[..., 0] -
-            xshaped[..., 1] * rope_cache[..., 1],
-            xshaped[..., 1] * rope_cache[..., 0] +
-            xshaped[..., 0] * rope_cache[..., 1],
+            xshaped[..., 0] * rope_cache[..., 0] - xshaped[..., 1] * rope_cache[..., 1],
+            xshaped[..., 1] * rope_cache[..., 0] + xshaped[..., 0] * rope_cache[..., 1],
         ],
         -1,
     )

@@ -29,8 +29,8 @@ wd = Path(__file__).parent.parent.resolve()
 sys.path.append(str(wd))
 
 from generate import generate
-from lit_llama.adapter import LLaMA, LLaMAConfig, mark_only_adapter_as_trainable, adapter_state_from_state_dict
-# from lit_llama.adapter_advanced import LLaMA, LLaMAConfig, mark_only_adapter_as_trainable, adapter_state_from_state_dict
+# from lit_llama.adapter import LLaMA, LLaMAConfig, mark_only_adapter_as_trainable, adapter_state_from_state_dict
+from lit_llama.adapter_sparseAttn import LLaMA, LLaMAConfig, mark_only_adapter_as_trainable, adapter_state_from_state_dict
 from lit_llama.tokenizer import Tokenizer
 from scripts.prepare_dolly import generate_prompt
 from lightning.fabric.strategies import DeepSpeedStrategy
@@ -52,13 +52,13 @@ epoch_size = 13011 # train dataset size
 num_epochs = 3
 max_iters = num_epochs * (epoch_size // micro_batch_size) // devices
 weight_decay = 0.02
-max_seq_length = 512 
+max_seq_length = 512
 warmup_iters = 2 * (epoch_size // micro_batch_size) // devices  # 2 epochs
 
 # wandb init
 wandb.init(
     project="COSE474",
-    name="c2_adapter_v1_base",
+    name="c2_adapter_v1_sparse_all",
     config={
       # Hyperparameters
       "learning_rate": learning_rate,

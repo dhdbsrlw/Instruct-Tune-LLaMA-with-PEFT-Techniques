@@ -1,8 +1,8 @@
 """
-Instruction-tuning with LLaMA-Adapter on the Alpaca dataset following the paper
+Instruction-tuning with LLaMA-Adapter v2 on the Alpaca dataset following the paper
 
-LLaMA-Adapter: Efficient Fine-tuning of Language Models with Zero-init Attention
-https://arxiv.org/abs/2303.16199
+LLaMA-Adapter V2: Parameter-Efficient Visual Instruction Model
+https://arxiv.org/abs/2304.15010
 
 This script runs on a single GPU by default. You can adjust the `micro_batch_size` to fit your GPU memory.
 You can finetune within 1 hour as done in the original paper using DeepSpeed Zero-2 on 8 A100 GPUs by setting the
@@ -20,6 +20,7 @@ import shutil
 import lightning as L
 import numpy as np
 import torch
+import torch.nn as nn
 
 import wandb # for logging 
 from tqdm import tqdm
@@ -29,17 +30,22 @@ wd = Path(__file__).parent.parent.resolve()
 sys.path.append(str(wd))
 
 from generate import generate
-from lit_llama.adapter import LLaMA, LLaMAConfig, mark_only_adapter_as_trainable, adapter_state_from_state_dict
-# from lit_llama.adapter_advanced import LLaMA, LLaMAConfig, mark_only_adapter_as_trainable, adapter_state_from_state_dict
+# from lit_llama.adapter import LLaMA, LLaMAConfig
+from lit_llama.adapter_sparseAttn import LLaMA, LLaMAConfig, mark_only_adapter_as_trainable, adapter_state_from_state_dict
+from lit_llama.adapter_v2_spD import (
+    mark_only_adapter_v2_as_trainable,
+    add_adapter_v2_parameters_to_linear_layers,
+    adapter_v2_state_from_state_dict
+    )
 from lit_llama.tokenizer import Tokenizer
 from scripts.prepare_dolly import generate_prompt
 from lightning.fabric.strategies import DeepSpeedStrategy
 
-instruction_tuning = True
-eval_interval = 100 # 600 에서 변경
+
+eval_interval = 100
 save_interval = 1000
 eval_iters = 100
-log_interval = 100 # 1 에서 변경
+log_interval = 100
 devices = 1
 
 # Hyperparameters
@@ -58,7 +64,7 @@ warmup_iters = 2 * (epoch_size // micro_batch_size) // devices  # 2 epochs
 # wandb init
 wandb.init(
     project="COSE474",
-    name="c2_adapter_v1_base",
+    name="c2_adapter_v2_sparse_all_dropout",
     config={
       # Hyperparameters
       "learning_rate": learning_rate,
@@ -77,16 +83,17 @@ ds_config = {
     "zero_optimization": {"stage": 2},
 }
 
+
 def main(
     data_dir: str = "data/dolly", 
     pretrained_path: str = "checkpoints/open-llama/7B/pytorch_model-00002-of-00002.bin",
-    out_dir: str = "out/adapter/alpaca",
+    out_dir: str = "out/adapter_v2/alpaca",
 ):
 
     fabric = L.Fabric(
-        accelerator="cuda", 
-        devices=devices, 
-        strategy=(DeepSpeedStrategy(config=ds_config) if devices > 1 else "auto"), 
+        accelerator="cuda",
+        devices=1,
+        strategy=(DeepSpeedStrategy(config=ds_config) if devices > 1 else "auto"),
         precision="bf16-true",
     )
     fabric.launch()
@@ -108,10 +115,11 @@ def main(
 
     with fabric.init_module():
         model = LLaMA(config)
-        # strict=False because missing keys due to adapter weights not containted in state dict
+        # strict=False because missing keys due to adapter weights not contained in state dict
         model.load_state_dict(checkpoint, strict=False)
 
-    mark_only_adapter_as_trainable(model)
+    add_adapter_v2_parameters_to_linear_layers(model)
+    mark_only_adapter_v2_as_trainable(model)
 
     num_params = sum([p.numel() for p in model.parameters() if p.requires_grad])
     print(f"Number of trainable parameters: {num_params}")
@@ -183,9 +191,7 @@ def train(
 def generate_response(model, instruction, input=""):
     tokenizer = Tokenizer("checkpoints/lit-llama/tokenizer.model")
     sample = {"instruction": instruction, "input": input}
-    prompt = instruction
-    if instruction_tuning:
-        prompt = generate_prompt(sample)
+    prompt = generate_prompt(sample)
     encoded = tokenizer.encode(prompt, bos=True, eos=False, device=model.device)
 
     output = generate(
@@ -266,11 +272,11 @@ def save_model_checkpoint(fabric, model, file_path):
             # Create a consolidated checkpoint with the same name next to the deepspeed checkpoint
             # and only keep the adapter weights
             state_dict = get_fp32_state_dict_from_zero_checkpoint(tmp_path)
-            state_dict = adapter_state_from_state_dict(state_dict)
+            state_dict = adapter_v2_state_from_state_dict(state_dict)
             torch.save(state_dict, file_path)
             shutil.rmtree(tmp_path)
     else:
-        state_dict = adapter_state_from_state_dict(model.state_dict())
+        state_dict = adapter_v2_state_from_state_dict(model.state_dict())
         if fabric.global_rank == 0:
             torch.save(state_dict, file_path)
         fabric.barrier()

@@ -56,9 +56,9 @@ from dataclasses import dataclass
 
 class LoRALayer():
     def __init__(
-        self,
-        r: int,
-        lora_alpha: int,
+        self, 
+        r: int, 
+        lora_alpha: int, 
         lora_dropout: float,
         merge_weights: bool,
     ):
@@ -90,13 +90,13 @@ class LoRALayer():
 class MergedLinear(nn.Linear, LoRALayer):
     # LoRA implemented in a dense layer
     def __init__(
-        self,
+        self, 
         # ↓ this part is for pretrained weights
-        in_features: int,
-        out_features: int,
+        in_features: int, 
+        out_features: int, 
         # ↓ the remaining part is for LoRA
-        r: int = 0,
-        lora_alpha: int = 1,
+        r: int = 0, 
+        lora_alpha: int = 1, 
         lora_dropout: float = 0.,
         enable_lora: List[bool] = [False],
         fan_in_fan_out: bool = False,
@@ -149,9 +149,8 @@ class MergedLinear(nn.Linear, LoRALayer):
             self.lora_A = nn.Parameter(
                 self.weight.new_zeros((r * sum(enable_lora), in_features)))  # (4, 128)
             self.lora_B = nn.Parameter(
-                self.weight.new_zeros(
-                    (out_features // len(enable_lora) * sum(enable_lora), r))  # (256, 2)
-            )  # weights for Conv1D with groups=sum(enable_lora)
+                self.weight.new_zeros((out_features // len(enable_lora) * sum(enable_lora), r))  # (256, 2)
+            ) # weights for Conv1D with groups=sum(enable_lora)
             # Notes about shapes above
             # - self.lora_A has shape (4, 128): 4 because rank is 2 and LoRA is applied only to two matrices;
             # 128 is the input size of the x (embedding size). (4, 128) and not (128, 4) because later on in
@@ -170,7 +169,7 @@ class MergedLinear(nn.Linear, LoRALayer):
             self.scaling = self.lora_alpha / self.r
 
             # Freezing the pre-trained weight matrix
-            self.weight.requires_grad = False  # (384, 128)
+            self.weight.requires_grad = False # (384, 128)
 
             # Compute the indices
             # Indices are needed to properly pad weight updates with zeros. If we want to fine-tune queries and values,
@@ -232,15 +231,12 @@ class MergedLinear(nn.Linear, LoRALayer):
         # Note: double transpose (in the beginning and in the end) is basically a guard for two-dimensional tensors
         # for example when we want to merge/unmerge LoRA weights and pretrained weights
         x = x.transpose(0, 1)
-        result = x.new_zeros(
-            (*x.shape[:-1], self.out_features))  # (64, 64, 384)
+        result = x.new_zeros((*x.shape[:-1], self.out_features))  # (64, 64, 384)
         result = result.view(-1, self.out_features)  # (4096, 384)
         result[:, self.lora_ind] = x.reshape(
-            -1, self.out_features // len(self.enable_lora) *
-            sum(self.enable_lora)
+            -1, self.out_features // len(self.enable_lora) * sum(self.enable_lora)
         )  # (4096, 256)
-        # (64, 64, 384)
-        return result.view((*x.shape[:-1], self.out_features)).transpose(0, 1)
+        return result.view((*x.shape[:-1], self.out_features)).transpose(0, 1)  # (64, 64, 384)
 
     def train(self, mode: bool = True):
         """Set the module into train or eval mode if `mode` is True of False respectively.
@@ -275,12 +271,10 @@ class MergedLinear(nn.Linear, LoRALayer):
                     self.lora_A.data.unsqueeze(0),   # (4, 128) -> (1, 4, 128)
                     self.lora_B.data.unsqueeze(-1),  # (256, 2) -> (256, 2, 1)
                     groups=sum(self.enable_lora)
-                ).squeeze(0)  # (1, 4, 128) @ (256, 2, 1) -> (1, 256, 128) -> (256, 128)
+                ).squeeze(0) # (1, 4, 128) @ (256, 2, 1) -> (1, 256, 128) -> (256, 128)
                 # -1: W = W - delta_W (unmerge), +1: W = W + delta_W (merge)
                 sign = -1 if mode else 1
-                # (256, 128) after zero_pad (384, 128)
-                self.weight.data += sign * \
-                    self.zero_pad(T(delta_w * self.scaling))
+                self.weight.data += sign * self.zero_pad(T(delta_w * self.scaling)) # (256, 128) after zero_pad (384, 128)
             self.merged = not mode
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -313,11 +307,9 @@ class MergedLinear(nn.Linear, LoRALayer):
             return F.linear(x, T(self.weight), bias=self.bias)
         else:
             # `F.linear` automatically transposes the second argument (T(self.weight) in our case)
-            # (64, 64, 128) @ (384, 128) -> (64, 64, 384)
-            result = F.linear(x, T(self.weight), bias=self.bias)
+            result = F.linear(x, T(self.weight), bias=self.bias)  # (64, 64, 128) @ (384, 128) -> (64, 64, 384)
             if self.r > 0:
-                # (64, 64, 128) @ (4, 128) -> (64, 64, 4)
-                after_A = F.linear(self.lora_dropout(x), self.lora_A)
+                after_A = F.linear(self.lora_dropout(x), self.lora_A)  # (64, 64, 128) @ (4, 128) -> (64, 64, 4)
                 # For F.conv1d:
                 # ⚬ input: input tensor of shape (mini-batch, in_channels, iW)
                 # ⚬ weight: filters of shape (out_channels, in_channels/groups, kW)
@@ -328,8 +320,7 @@ class MergedLinear(nn.Linear, LoRALayer):
                     self.lora_B.unsqueeze(-1),  # (256, 2) -> (256, 2, 1)
                     groups=sum(self.enable_lora)
                 ).transpose(-2, -1)  # (64, 4, 64) @ (256, 2, 1) -> (64, 256, 64) -> (64, 64, 256)
-                # (64, 64, 256) after zero_pad (64, 64, 384)
-                result += self.zero_pad(after_B) * self.scaling
+                result += self.zero_pad(after_B) * self.scaling  # (64, 64, 256) after zero_pad (64, 64, 384)
             return result
 
 
@@ -361,9 +352,9 @@ def mark_only_lora_as_trainable(model: nn.Module, bias: str = 'none') -> None:
     elif bias == 'lora_only':
         for m in model.modules():
             if isinstance(m, LoRALayer) and \
-                    hasattr(m, 'bias') and \
-                    m.bias is not None:
-                m.bias.requires_grad = True
+                hasattr(m, 'bias') and \
+                m.bias is not None:
+                    m.bias.requires_grad = True
     else:
         raise NotImplementedError
 
@@ -441,7 +432,7 @@ class CausalSelfAttention(llama.CausalSelfAttention):
             lora_alpha=self.lora_config.alpha,
             lora_dropout=self.lora_config.dropout,
             enable_lora=[True, False, True],
-            fan_in_fan_out=False,
+            fan_in_fan_out = False,
             merge_weights=True,
             bias=False)
         # output projection
@@ -473,8 +464,7 @@ def lora(r, alpha, dropout, enabled: bool = True):
         yield
         return
 
-    CausalSelfAttention.lora_config = LoRAConfig(
-        r=r, alpha=alpha, dropout=dropout)
+    CausalSelfAttention.lora_config = LoRAConfig(r=r, alpha=alpha, dropout=dropout)
     # when entering context manager replace link to causal self-attention class from original
     # to a variant with LoRA
     causal_self_attention = llama.CausalSelfAttention

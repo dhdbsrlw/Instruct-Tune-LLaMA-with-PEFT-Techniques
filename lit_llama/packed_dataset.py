@@ -53,7 +53,7 @@ class PackedDataset(IterableDataset):
         shard_id = self._process_rank * num_workers + worker_id
 
         max_num_files = len(self._filenames) // num_shards * num_shards
-        filenames = self._filenames[shard_id: max_num_files: num_shards]
+        filenames = self._filenames[shard_id : max_num_files : num_shards]
 
         return PackedDatasetIterator(
             filenames=filenames,
@@ -122,12 +122,12 @@ class PackedDatasetBuilder(object):
     def add_array(self, arr):
         while self._idx + arr.shape[0] > self._chunk_size:
             part_len = self._chunk_size - self._idx
-            self._arr[self._idx: self._idx + part_len] = arr[:part_len]
+            self._arr[self._idx : self._idx + part_len] = arr[:part_len]
             self._write_chunk()
             arr = arr[part_len:]
 
         arr_len = arr.shape[0]
-        self._arr[self._idx: self._idx + arr_len] = arr
+        self._arr[self._idx : self._idx + arr_len] = arr
         self._idx += arr_len
 
     def write_reminder(self):
@@ -256,6 +256,5 @@ class CombinedDatasetIterator:
         self._rng = random.Random(seed)
 
     def __next__(self):
-        dataset, = self._rng.choices(
-            self._datasets, weights=self._weights, k=1)
+        dataset, = self._rng.choices(self._datasets, weights=self._weights, k=1)
         return next(dataset)

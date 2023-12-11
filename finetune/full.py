@@ -4,11 +4,6 @@ Instruction-tuning on the Alpaca dataset using a regular finetuning procedure (u
 Note: If you run into a CUDA error "Expected is_sm80 to be true, but got false", uncomment the line
 `torch.backends.cuda.enable_flash_sdp(False)` in the script below (see https://github.com/Lightning-AI/lit-llama/issues/101).
 """
-from scripts.prepare_alpaca import generate_prompt
-from lit_llama.utils import save_model_checkpoint
-from lit_llama.tokenizer import Tokenizer
-from lit_llama.model import Block, LLaMA, LLaMAConfig
-from generate import generate
 import sys
 from pathlib import Path
 import os
@@ -21,12 +16,18 @@ import numpy as np
 import torch
 from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
 
-import wandb  # for logging
+import wandb # for logging 
 from tqdm import tqdm
 
 # support running without installing as a package
 wd = Path(__file__).parent.parent.resolve()
 sys.path.append(str(wd))
+
+from generate import generate
+from lit_llama.model import Block, LLaMA, LLaMAConfig
+from lit_llama.tokenizer import Tokenizer
+from lit_llama.utils import save_model_checkpoint
+from scripts.prepare_alpaca import generate_prompt
 
 
 instruction_tuning = True
@@ -34,19 +35,19 @@ eval_interval = 1000
 save_interval = 1000
 eval_iters = 100
 log_interval = 100
-devices = 1  # 4
+devices = 1 # 4
 
 # Hyperparameters
 learning_rate = 3e-5
-batch_size = 64  # 128 / devices
+batch_size = 64 # 128 / devices
 micro_batch_size = 4
 gradient_accumulation_iters = batch_size // micro_batch_size
 assert gradient_accumulation_iters > 0
-epoch_size = 13011  # 50000  # train dataset size
+epoch_size = 13011 # 50000  # train dataset size
 num_epochs = 3
 max_iters = num_epochs * (epoch_size // micro_batch_size) // devices
 weight_decay = 0.0
-block_size = 264  # 512
+block_size = 264 # 512
 warmup_iters = 100
 
 # wandb init
@@ -54,14 +55,14 @@ wandb.init(
     project="COSE474",
     name="common_2_full",
     config={
-        # Hyperparameters
-        "learning_rate": learning_rate,
-        "batch_size": batch_size,
-        "micro_batch_size": micro_batch_size,
-        "max_iters": max_iters,
-        "weight_decay": weight_decay,
-        "block_size": block_size,
-        "warmup_iters": warmup_iters,
+      # Hyperparameters
+      "learning_rate": learning_rate,
+      "batch_size": batch_size,
+      "micro_batch_size": micro_batch_size,
+      "max_iters" : max_iters,
+      "weight_decay": weight_decay,
+      "block_size": block_size,
+      "warmup_iters": warmup_iters,
     }
 )
 
@@ -72,13 +73,10 @@ def main(
     out_dir: str = "out/full/alpaca",
 ):
 
-    auto_wrap_policy = partial(
-        transformer_auto_wrap_policy, transformer_layer_cls={Block})
-    strategy = FSDPStrategy(auto_wrap_policy=auto_wrap_policy,
-                            activation_checkpointing=Block, limit_all_gathers=True)
+    auto_wrap_policy = partial(transformer_auto_wrap_policy, transformer_layer_cls={Block})
+    strategy = FSDPStrategy(auto_wrap_policy=auto_wrap_policy, activation_checkpointing=Block, limit_all_gathers=True)
 
-    fabric = L.Fabric(accelerator="cuda", devices=devices,
-                      precision="bf16-mixed", strategy=strategy)
+    fabric = L.Fabric(accelerator="cuda", devices=devices, precision="bf16-mixed", strategy=strategy)
     fabric.launch()
     fabric.seed_everything(1337 + fabric.global_rank)
 
@@ -96,19 +94,17 @@ def main(
         torch.set_default_tensor_type(torch.HalfTensor)
         model = LLaMA(config).bfloat16()
         torch.set_default_tensor_type(torch.FloatTensor)
-        model.load_state_dict(checkpoint, strict=False)
+        model.load_state_dict(checkpoint, strict=False) 
 
     model = fabric.setup_module(model)
 
-    optimizer = torch.optim.AdamW(
-        model.parameters(), lr=learning_rate, foreach=False)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, foreach=False)
     optimizer = fabric.setup_optimizers(optimizer)
 
     train(fabric, model, optimizer, train_data, val_data, out_dir)
 
     # Save the final checkpoint at the end of training
-    save_model_checkpoint(fabric, model, os.path.join(
-        out_dir, "lit-llama-full-finetuned.pth"))
+    save_model_checkpoint(fabric, model, os.path.join(out_dir, "lit-llama-full-finetuned.pth"))
 
 
 def train(
@@ -137,7 +133,7 @@ def train(
                 param_group['lr'] = lr
 
         t0 = time.time()
-
+        
         input_ids, targets = get_batch(fabric, train_data)
         with fabric.no_backward_sync(model, enabled=is_accumulating):
             logits = model(input_ids)
@@ -152,24 +148,21 @@ def train(
             if step_count % eval_interval == 0:
                 val_loss = validate(fabric, model, val_data)
                 # wandb logging 추가
-                wandb.log({"val_loss": val_loss})
+                wandb.log({"val_loss" : val_loss})
                 fabric.print(f"step {iter_num}: val loss {val_loss:.4f}")
                 fabric.barrier()
 
             if step_count % save_interval == 0:
                 print(f"Saving weights to {out_dir}")
-                save_model_checkpoint(fabric, model, os.path.join(
-                    out_dir, f"iter-{iter_num:06d}-ckpt.pth"))
+                save_model_checkpoint(fabric, model, os.path.join(out_dir, f"iter-{iter_num:06d}-ckpt.pth"))
 
         dt = time.time() - t0
         if iter_num % log_interval == 0:
-            fabric.print(
-                f"iter {iter_num}: loss {loss.item():.4f}, time: {dt*1000:.2f}ms")
+            fabric.print(f"iter {iter_num}: loss {loss.item():.4f}, time: {dt*1000:.2f}ms")
             # wandb logging 추가
-            wandb.log({"train_loss": loss.item()})
+            wandb.log({"train_loss" : loss.item()})
 
-    wandb.finish()  # 종료
-
+    wandb.finish() # 종료
 
 def generate_response(model, instruction):
     tokenizer = Tokenizer("checkpoints/lit-llama/tokenizer.model")
@@ -177,8 +170,7 @@ def generate_response(model, instruction):
     prompt = instruction
     if instruction_tuning:
         prompt = generate_prompt(sample)
-    encoded = tokenizer.encode(
-        prompt, bos=True, eos=False, device=model.device)
+    encoded = tokenizer.encode(prompt, bos=True, eos=False, device=model.device)
 
     output = generate(
         model,
@@ -187,7 +179,7 @@ def generate_response(model, instruction):
         max_new_tokens=100,
     )
     output = tokenizer.decode(output)
-    return output  # output.split("### Response:")[1].strip()
+    return output # output.split("### Response:")[1].strip()
 
 
 @torch.no_grad()
@@ -204,7 +196,7 @@ def validate(fabric: L.Fabric, model: torch.nn.Module, val_data: np.ndarray) -> 
 
     # produce an example:
     instruction = "Recommend a movie for me to watch during the weekend and explain the reason."
-
+    
     output = generate_response(model, instruction)
     fabric.print(instruction)
     fabric.print(output)
@@ -217,8 +209,7 @@ def loss_fn(logits, targets):
     # shift the targets such that output n predicts token n+1
     logits = logits[..., :-1, :].contiguous()
     targets = targets[..., 1:].contiguous()
-    loss = torch.nn.functional.cross_entropy(
-        logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
+    loss = torch.nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
     return loss
 
 

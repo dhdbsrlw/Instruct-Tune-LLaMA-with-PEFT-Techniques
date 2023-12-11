@@ -25,10 +25,11 @@ llama_model_sizes = {
 
 def llama_model_lookup(checkpoint: dict) -> str:
     """Returns the LLaMA model name from the checkpoint.
-
+    
     Checks the width of the lm_head.weight matrix, as these uniquely identify the model.
     """
-    embedding_size = checkpoint['transformer.wte.weight'].shape[1]
+    # embedding_size = checkpoint['transformer.wte.weight'].shape[1]
+    embedding_size = checkpoint['lm_head.weight'].shape[1]
     return llama_model_sizes[embedding_size]
 
 
@@ -40,7 +41,7 @@ def find_multiple(n: int, k: int) -> int:
 
 def save_model_checkpoint(fabric, model, file_path):
     """Handles boilerplate logic for retrieving and saving the state_dict.
-
+    
     This will be upstreamed to Fabric soon.
     """
     file_path = Path(file_path)
@@ -52,13 +53,11 @@ def save_model_checkpoint(fabric, model, file_path):
         fabric.barrier()
         if fabric.global_rank == 0:
             # Create a consolidated checkpoint with the same name next to the deepspeed checkpoint
-            convert_zero_checkpoint_to_fp32_state_dict(
-                file_path, file_path.with_suffix(".pth"))
+            convert_zero_checkpoint_to_fp32_state_dict(file_path, file_path.with_suffix(".pth"))
         return
 
     if isinstance(fabric.strategy, FSDPStrategy):
-        save_policy = FullStateDictConfig(
-            offload_to_cpu=(fabric.world_size > 1), rank0_only=True)
+        save_policy = FullStateDictConfig(offload_to_cpu=(fabric.world_size > 1), rank0_only=True)
         with FSDP.state_dict_type(model, StateDictType.FULL_STATE_DICT, save_policy):
             state_dict = model._forward_module.state_dict()
     else:
@@ -95,15 +94,12 @@ class EmptyInitOnDevice(torch.overrides.TorchFunctionMode):
             self.quantized_linear_cls = Linear8bitLt
         elif self.quantization_mode == 'gptq.int4':
             from .quantization import ColBlockQuantizedLinear
-            self.quantized_linear_cls = functools.partial(
-                ColBlockQuantizedLinear, bits=4, tile_cols=-1)
+            self.quantized_linear_cls = functools.partial(ColBlockQuantizedLinear, bits=4, tile_cols=-1)
         elif self.quantization_mode == 'gptq.int8':
             from .quantization import ColBlockQuantizedLinear
-            self.quantized_linear_cls = functools.partial(
-                ColBlockQuantizedLinear, bits=8, tile_cols=-1)
+            self.quantized_linear_cls = functools.partial(ColBlockQuantizedLinear, bits=8, tile_cols=-1)
         elif self.quantization_mode is not None:
-            raise RuntimeError(
-                f"unknown quantization mode {self.quantization_mode}")
+            raise RuntimeError(f"unknown quantization mode {self.quantization_mode}")
         self.device = device
         self.dtype = dtype
 
@@ -148,12 +144,10 @@ def quantization(mode: str = None):
         quantized_linear_cls = Linear8bitLt
     elif mode == 'gptq.int4':
         from .quantization import ColBlockQuantizedLinear
-        quantized_linear_cls = functools.partial(
-            ColBlockQuantizedLinear, bits=4, tile_cols=-1)
+        quantized_linear_cls = functools.partial(ColBlockQuantizedLinear, bits=4, tile_cols=-1)
     elif mode == 'gptq.int8':
         from .quantization import ColBlockQuantizedLinear
-        quantized_linear_cls = functools.partial(
-            ColBlockQuantizedLinear, bits=8, tile_cols=-1)
+        quantized_linear_cls = functools.partial(ColBlockQuantizedLinear, bits=8, tile_cols=-1)
     elif mode is not None:
         raise ValueError(f"Unknown quantization mode: {mode}")
 
@@ -274,9 +268,9 @@ class NotYetLoadedTensor:
 
     def __getattr__(self, name):
         # properties
-        # TODO: device, is_...??
-        # TODO: mH, mT, H, T, data, imag, real
-        # name ???
+        ## TODO: device, is_...??
+        ## TODO: mH, mT, H, T, data, imag, real
+        ## name ???
         if name in {
             "dtype",
             "grad",

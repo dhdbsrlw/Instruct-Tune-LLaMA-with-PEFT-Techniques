@@ -4,11 +4,6 @@ Instruction-tuning with LoRA on the Alpaca dataset.
 Note: If you run into a CUDA error "Expected is_sm80 to be true, but got false", uncomment the line
 `torch.backends.cuda.enable_flash_sdp(False)` in the script below (see https://github.com/Lightning-AI/lit-llama/issues/101).
 """
-from scripts.prepare_alpaca import generate_prompt
-from lit_llama.tokenizer import Tokenizer
-from lit_llama.model import LLaMA, LLaMAConfig
-from lit_llama.lora import mark_only_lora_as_trainable, lora, lora_state_dict
-from generate import generate
 import sys
 from pathlib import Path
 import os
@@ -18,7 +13,7 @@ import lightning as L
 import numpy as np
 import torch
 
-import wandb  # for logging
+import wandb # for logging 
 from transformers import LlamaTokenizer, LlamaForCausalLM
 from tqdm import tqdm
 
@@ -27,57 +22,62 @@ from tqdm import tqdm
 wd = Path(__file__).parent.parent.resolve()
 sys.path.append(str(wd))
 
+from generate import generate
+from lit_llama.lora import mark_only_lora_as_trainable, lora, lora_state_dict
+from lit_llama.model import LLaMA, LLaMAConfig
+from lit_llama.tokenizer import Tokenizer
+from scripts.prepare_alpaca import generate_prompt
+
 
 instruction_tuning = True
 eval_interval = 100
-save_interval = 100
+save_interval = 1000
 eval_iters = 100
 log_interval = 1
 devices = 1
 
-# wandb init
-wandb.init(
-    project="lora",
-    name="common_1",
-    config={
-        # Hyperparameters
-        "learning_rate": 3e-4,
-        "batch_size": 128,
-        "micro_batch_size": 4,
-        "max_iters": 16263,
-        "weight_decay": 0.0,
-        "max_seq_length": 512,
-        "lora_r": 8,
-        "lora_alpha": 16,
-        "lora_dropout": 0.05,
-        "warmup_iters": 100,
-    }
-)
 
 # Hyperparameters
 learning_rate = 3e-4
-batch_size = 128
+batch_size =  64
 micro_batch_size = 4
 gradient_accumulation_iters = batch_size // micro_batch_size
 assert gradient_accumulation_iters > 0
-epoch_size = 13011  # 50000  # train dataset size
-num_epochs = 5
+epoch_size = 13011 # 50000  # train dataset size
+num_epochs = 3
 max_iters = num_epochs * (epoch_size // micro_batch_size) // devices
 # max_iters = 50000 * 3 // micro_batch_size
 weight_decay = 0.0
-# see scripts/prepare_alpaca.py (256), dolly 에 맞게 1024 로 수정
-max_seq_length = 512
+max_seq_length = 512  # see scripts/prepare_alpaca.py (256), dolly 에 맞게 1024 로 수정
 lora_r = 8
 lora_alpha = 16
 lora_dropout = 0.05
 warmup_iters = 100
-# warmup_iters = 2 * (epoch_size // micro_batch_size) // devices  # 2 epochs
+
+
+# wandb init
+wandb.init(
+    project="COSE474",
+    name="c2_lora_base",
+    config={
+      # Hyperparameters
+      "learning_rate": learning_rate,
+      "batch_size": batch_size,
+      "micro_batch_size": micro_batch_size,
+      "max_iters" : max_iters,
+      "weight_decay": weight_decay,
+      "max_seq_length": max_seq_length,  
+      "lora_r": lora_r,
+      "lora_alpha": lora_alpha,
+      "lora_dropout": lora_dropout,
+      "warmup_iters": warmup_iters,
+    }
+)
 
 
 def main(
-    data_dir: str = "data/alpaca",
-    # "checkpoints/lit-llama/7B/lit-llama.pth",
-    pretrained_path: str = "checkpoints/open-llama/7B/pytorch_model-00002-of-00002.bin",
+    data_dir: str = "data/dolly", 
+    pretrained_path: str = "checkpoints/open-llama/7B/pytorch_model-00002-of-00002.bin", # "checkpoints/lit-llama/7B/lit-llama.pth",
     tokenizer_path: str = "checkpoints/open-llama/7B/tokenizer.model",
     out_dir: str = "out/lora/alpaca",
 ):
@@ -106,18 +106,16 @@ def main(
         model = LLaMA(config)
         # strict=False because missing keys due to LoRA weights not contained in checkpoint state
         model.load_state_dict(checkpoint, strict=False)
-
+    
     mark_only_lora_as_trainable(model)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     model, optimizer = fabric.setup(model, optimizer)
-    train(fabric, model, optimizer, train_data,
-          val_data, tokenizer_path, out_dir)
+    train(fabric, model, optimizer, train_data, val_data, tokenizer_path, out_dir)
 
     # Save the final LoRA checkpoint at the end of training
     checkpoint = lora_state_dict(model)
-    fabric.save(os.path.join(
-        out_dir, "lit-llama-lora-finetuned.pth"), checkpoint)
+    fabric.save(os.path.join(out_dir, "lit-llama-lora-finetuned.pth"), checkpoint)
 
 
 def train(
@@ -154,14 +152,14 @@ def train(
 
         # gradient 업데이트
         if (iter_num + 1) % gradient_accumulation_iters == 0:
-            optimizer.step()
+            optimizer.step() 
             optimizer.zero_grad()
             step_count += 1
-
+                
             if step_count % eval_interval == 0:
                 val_loss = validate(fabric, model, val_data, tokenizer_path)
                 # wandb logging 추가
-                wandb.log({"val_loss": val_loss})
+                wandb.log({"val_loss" : val_loss})
                 fabric.print(f"step {iter_num}: val loss {val_loss:.4f}")
                 fabric.barrier()
 
@@ -170,17 +168,15 @@ def train(
                 # We are only saving the LoRA weights
                 # TODO: Provide a function/script to merge the LoRA weights with pretrained weights
                 checkpoint = lora_state_dict(model)
-                fabric.save(os.path.join(
-                    out_dir, f"iter-{iter_num:06d}-ckpt.pth"), checkpoint)
+                fabric.save(os.path.join(out_dir, f"iter-{iter_num:06d}-ckpt.pth"), checkpoint)
 
         dt = time.time() - t0
         if iter_num % log_interval == 0:
-            fabric.print(
-                f"iter {iter_num}: loss {loss.item():.4f}, time: {dt*1000:.2f}ms")
+            fabric.print(f"iter {iter_num}: loss {loss.item():.4f}, time: {dt*1000:.2f}ms")
             # wandb logging 추가
-            wandb.log({"train_loss": loss.item()})
+            wandb.log({"train_loss" : loss.item()})
 
-    wandb.finish()  # 종료
+    wandb.finish() # 종료
 
 
 def generate_response(model, instruction, tokenizer_path):
@@ -189,8 +185,7 @@ def generate_response(model, instruction, tokenizer_path):
     prompt = instruction
     if instruction_tuning:
         prompt = generate_prompt(sample)
-    encoded = tokenizer.encode(
-        prompt, bos=True, eos=False, device=model.device)
+    encoded = tokenizer.encode(prompt, bos=True, eos=False, device=model.device)
 
     output = generate(
         model,
@@ -199,7 +194,7 @@ def generate_response(model, instruction, tokenizer_path):
         max_new_tokens=100,
     )
     output = tokenizer.decode(output)
-    return output  # output.split("### Response:")[1].strip()
+    return output # output.split("### Response:")[1].strip()
 
 
 @torch.no_grad()
@@ -216,7 +211,7 @@ def validate(fabric: L.Fabric, model: torch.nn.Module, val_data: np.ndarray, tok
 
     # produce an example:
     instruction = "Recommend a movie for me to watch during the weekend and explain the reason."
-
+    
     output = generate_response(model, instruction, tokenizer_path)
     fabric.print(instruction)
     fabric.print(output)
@@ -224,15 +219,13 @@ def validate(fabric: L.Fabric, model: torch.nn.Module, val_data: np.ndarray, tok
     model.train()
     return out.item()
 
-
 def loss_fn(logits, targets):
     # shift the targets such that output n predicts token n+1
     logits = logits[..., :-1, :].contiguous()
     targets = targets[..., 1:].contiguous()
-    loss = torch.nn.functional.cross_entropy(
-        logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
+    loss = torch.nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
     return loss
-
+    
 
 def get_batch(fabric: L.Fabric, data: list):
     ix = torch.randint(len(data), (micro_batch_size,))
@@ -263,7 +256,7 @@ if __name__ == "__main__":
     # Uncomment this line if you see an error: "Expected is_sm80 to be true, but got false"
     # torch.backends.cuda.enable_flash_sdp(False)
     torch.set_float32_matmul_precision("high")
-
+    
     from jsonargparse.cli import CLI
 
     CLI(main)
